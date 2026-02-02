@@ -1,5 +1,5 @@
 
-  # Generate Random Table
+  # Dashboard
 
   This is a code bundle for Generate Random Table. The original project is available at https://www.figma.com/design/rlCBuGLBOLMYbCj19HrwxC/Generate-Random-Table.
 
