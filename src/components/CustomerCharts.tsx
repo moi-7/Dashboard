@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { 
   BarChart, 
   Bar, 
@@ -15,7 +15,7 @@ import {
   Line
 } from 'recharts';
 import { Users, UserCheck, Clock, TrendingUp, Download, MoreVertical, FileText, Image as ImageIcon, GripHorizontal, Maximize2, Minimize2 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
@@ -196,14 +196,17 @@ function ChartCard({
   const menuRef = useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
+    if (!showMenu) return; // Don't add listener if menu is closed
+
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setShowMenu(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    
+    document.addEventListener('mousedown', handleClickOutside, true);
+    return () => document.removeEventListener('mousedown', handleClickOutside, true);
+  }, [showMenu]);
 
   return (
     <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-100 dark:border-gray-800 shadow-sm relative h-full flex flex-col transition-colors duration-300" id={id}>
@@ -281,6 +284,25 @@ export function CustomerCharts({
   widgetSizes,
   onToggleSize
 }: CustomerChartsProps) {
+  // Track dark mode reactively
+  const [isDarkMode, setIsDarkMode] = useState(
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+  );
+
+  useEffect(() => {
+    // Watch for dark mode changes
+    const observer = new MutationObserver(() => {
+      const isDark = document.documentElement.classList.contains('dark');
+      setIsDarkMode(isDark);
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    return () => observer.disconnect();
+  }, []);
   
   // Resolve Theme
   const themeColors = useMemo(() => {
@@ -296,15 +318,12 @@ export function CustomerCharts({
     return CHART_THEMES[theme];
   }, [theme, customColor]);
 
-  // Determine if dark mode is active by checking DOM class
-  // This is a simple check for Recharts colors. Reactive updates might require context or prop drilling,
-  // but for now this check runs on render. If theme changes, this component re-renders.
-  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
-  const axisColor = isDark ? '#9ca3af' : '#6b7280';
-  const gridColor = isDark ? '#374151' : '#f3f4f6';
-  const tooltipBg = isDark ? '#1f2937' : '#fff';
-  const tooltipBorder = isDark ? '#374151' : '#fff';
-  const tooltipText = isDark ? '#f3f4f6' : '#111827';
+  // Use reactive dark mode detection
+  const axisColor = isDarkMode ? '#9ca3af' : '#6b7280';
+  const gridColor = isDarkMode ? '#374151' : '#f3f4f6';
+  const tooltipBg = isDarkMode ? '#1f2937' : '#fff';
+  const tooltipBorder = isDarkMode ? '#374151' : '#fff';
+  const tooltipText = isDarkMode ? '#f3f4f6' : '#111827';
 
   // Compute stats
   const stats = useMemo(() => {
@@ -312,14 +331,20 @@ export function CustomerCharts({
     const leads = data.filter(c => c.tags.includes('Lead')).length;
     const partners = data.filter(c => c.tags.includes('Partner')).length;
     
-    // Check contact dates within last 30 days
+    // Check contact dates within last 30 days with better validation
     const now = new Date();
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(now.getDate() - 30);
     
     const recentContacts = data.filter(c => {
-      const date = new Date(c.lastContacted);
-      return date >= thirtyDaysAgo;
+      try {
+        const date = new Date(c.lastContacted);
+        // Only count if date is valid and within range
+        if (isNaN(date.getTime())) return false;
+        return date >= thirtyDaysAgo && date <= now;
+      } catch {
+        return false;
+      }
     }).length;
 
     return { total, leads, partners, recentContacts };
@@ -343,19 +368,32 @@ export function CustomerCharts({
   const activityData = useMemo(() => {
     const counts: Record<string, number> = {};
     data.forEach(c => {
-      const date = new Date(c.lastContacted);
-      if (isNaN(date.getTime())) return;
-      const key = date.toLocaleString('default', { month: 'short', year: '2-digit' });
-      if (!counts[key]) counts[key] = 0;
-      counts[key]++;
+      try {
+        const date = new Date(c.lastContacted);
+        // Validate date before using
+        if (isNaN(date.getTime())) {
+          console.warn(`Invalid date format: ${c.lastContacted}`);
+          return;
+        }
+        const key = date.toLocaleString('default', { month: 'short', year: '2-digit' });
+        if (!counts[key]) counts[key] = 0;
+        counts[key]++;
+      } catch (error) {
+        console.warn(`Error parsing date: ${c.lastContacted}`, error);
+      }
     });
 
     const chartData = Object.entries(counts).map(([name, value]) => {
-      const [month, year] = name.split(" '");
-      const monthIdx = new Date(`${month} 1, 2000`).getMonth();
-      const fullYear = parseInt(`20${year}`);
-      const sortValue = fullYear * 100 + monthIdx;
-      return { name, value, sortValue };
+      try {
+        const [month, year] = name.split(" '");
+        const monthIdx = new Date(`${month} 1, 2000`).getMonth();
+        const fullYear = parseInt(`20${year}`);
+        const sortValue = fullYear * 100 + monthIdx;
+        return { name, value, sortValue };
+      } catch (error) {
+        console.warn(`Error processing chart data: ${name}`, error);
+        return { name, value, sortValue: 0 };
+      }
     });
 
     return chartData.sort((a, b) => a.sortValue - b.sortValue);
@@ -402,7 +440,7 @@ export function CustomerCharts({
       if (ctx) {
         ctx.scale(2, 2);
         // Use proper background color for export based on theme
-        ctx.fillStyle = isDark ? '#111827' : 'white';
+        ctx.fillStyle = isDarkMode ? '#111827' : 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
@@ -411,7 +449,8 @@ export function CustomerCharts({
           ctx.drawImage(img, 0, 0);
           const link = document.createElement("a");
           link.download = `${filename}.png`;
-          link.href = canvas.toDataURL("image/png");
+          const dataUrl = canvas.toDataURL("image/png");
+          link.href = dataUrl;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
@@ -548,7 +587,7 @@ export function CustomerCharts({
                   dataKey="value" 
                   stroke={themeColors.primary} 
                   strokeWidth={3} 
-                  dot={{ r: 4, fill: themeColors.primary, strokeWidth: 2, stroke: isDark ? '#1f2937' : '#fff' }}
+                  dot={{ r: 4, fill: themeColors.primary, strokeWidth: 2, stroke: isDarkMode ? '#1f2937' : '#fff' }}
                   activeDot={{ r: 6, strokeWidth: 0, fill: themeColors.primary }}
                 />
               </LineChart>
@@ -627,7 +666,7 @@ export function CustomerCharts({
                   dataKey="value"
                   onClick={handleChartClick}
                   className="hover:opacity-80 transition-opacity outline-none"
-                  stroke={isDark ? '#111827' : '#fff'}
+                  stroke={isDarkMode ? '#111827' : '#fff'}
                 >
                   {tagData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={themeColors.colors[index % themeColors.colors.length]} className="outline-none" />

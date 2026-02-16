@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useForm } from 'react-hook-form@7.55.0';
+import { useForm } from 'react-hook-form';
 import { Modal } from './Modal';
 import { Loader2 } from 'lucide-react';
 

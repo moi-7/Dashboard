@@ -1,5 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MoreHorizontal, Edit, Trash2 } from 'lucide-react';
+import {
+  useFloating,
+  autoUpdate,
+  offset,
+  flip,
+  shift,
+  useClick,
+  useDismiss,
+  useRole,
+  useInteractions,
+} from '@floating-ui/react';
 
 interface RowActionsProps {
   onEdit: () => void;
@@ -8,35 +19,45 @@ interface RowActionsProps {
 
 export function RowActions({ onEdit, onDelete }: RowActionsProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
+  const { refs, floatingStyles, context } = useFloating({
+    open: isOpen,
+    onOpenChange: setIsOpen,
+    middleware: [
+      offset(8), // Space between trigger and popup
+      flip(), // Flip to opposite side if not enough space
+      shift({ padding: 8 }), // Shift to keep within viewport
+    ],
+    whileElementsMounted: autoUpdate,
+  });
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+  const click = useClick(context);
+  const dismiss = useDismiss(context);
+  const role = useRole(context);
 
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen]);
+  const { getReferenceProps, getFloatingProps } = useInteractions([
+    click,
+    dismiss,
+    role,
+  ]);
 
   return (
-    <div className="relative" ref={menuRef}>
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
+    <div>
+      <button
+        ref={refs.setReference}
+        {...getReferenceProps()}
         className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
       >
         <MoreHorizontal size={18} />
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-32 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-100 dark:border-gray-700 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
+        <div
+          ref={refs.setFloating}
+          style={floatingStyles}
+          {...getFloatingProps()}
+          className="w-32 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-100 dark:border-gray-700 py-1 z-50 animate-in fade-in zoom-in-95 duration-100"
+        >
           <button
             onClick={() => {
               onEdit();

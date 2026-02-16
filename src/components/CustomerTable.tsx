@@ -4,7 +4,7 @@ import "gridjs/dist/theme/mermaid.css";
 import { faker } from '@faker-js/faker';
 import { Search, ListFilter, ArrowUpDown, Upload, Trash2, X, Download, ChevronDown, Check, Columns, Calendar, RotateCcw, PieChart as PieChartIcon, Eye, Palette, GripVertical, Plus } from 'lucide-react';
 import Papa from 'papaparse';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { CustomerFormModal, CustomerFormData } from './CustomerFormModal';
 import { RowActions } from './RowActions';
 import { CustomerCharts, ChartVisibility, CHART_THEMES, ThemeKey, WidgetSize } from './CustomerCharts';
@@ -130,6 +130,11 @@ export function CustomerTable() {
 
   // Click outside handlers
   useEffect(() => {
+    // Don't add listeners if no menu is open
+    if (!isFilterMenuOpen && !isColumnMenuOpen && !isDateMenuOpen && !isChartMenuOpen) {
+      return;
+    }
+
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (filterMenuRef.current && !filterMenuRef.current.contains(target)) setIsFilterMenuOpen(false);
@@ -138,11 +143,10 @@ export function CustomerTable() {
       if (chartMenuRef.current && !chartMenuRef.current.contains(target)) setIsChartMenuOpen(false);
     };
 
-    if (isFilterMenuOpen || isColumnMenuOpen || isDateMenuOpen || isChartMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+    // Use capture phase for better performance
+    document.addEventListener('mousedown', handleClickOutside, true);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('mousedown', handleClickOutside, true);
     };
   }, [isFilterMenuOpen, isColumnMenuOpen, isDateMenuOpen, isChartMenuOpen]);
 
@@ -228,15 +232,35 @@ export function CustomerTable() {
       skipEmptyLines: true,
       complete: (results) => {
         try {
-          const newCustomers: Customer[] = results.data.map((row: any) => ({
-            id: faker.string.uuid(),
-            name: row.name || row.Name || row['Full Name'] || `${faker.person.firstName()} ${faker.person.lastName()}`,
-            avatar: row.avatar || faker.image.avatar(),
-            email: row.email || row.Email || faker.internet.email(),
-            phone: row.phone || row.Phone || faker.phone.number({ style: 'national' }),
-            tags: row.tags ? row.tags.split(',').map((t: string) => t.trim()) : faker.helpers.arrayElements(['Lead', 'New'], { min: 1, max: 1 }),
-            lastContacted: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-          }));
+          const newCustomers: Customer[] = results.data
+            .map((row: any) => {
+              // Validate that we have at least a name
+              const name = row.name || row.Name || row['Full Name'] || '';
+              if (!name || typeof name !== 'string' || name.trim() === '') {
+                console.warn('Skipping row with invalid name:', row);
+                return null;
+              }
+
+              // Validate email format if provided
+              const email = row.email || row.Email || '';
+              const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+              if (email && !emailRegex.test(email)) {
+                console.warn('Invalid email format, using fallback:', email);
+              }
+
+              return {
+                id: faker.string.uuid(),
+                name: name.trim(),
+                avatar: row.avatar || faker.image.avatar(),
+                email: (email && emailRegex.test(email)) ? email : faker.internet.email(),
+                phone: row.phone || row.Phone || faker.phone.number({ style: 'national' }),
+                tags: row.tags 
+                  ? row.tags.split(',').map((t: string) => t.trim()).filter((t: string) => t.length > 0)
+                  : faker.helpers.arrayElements(['Lead', 'New'], { min: 1, max: 1 }),
+                lastContacted: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+              };
+            })
+            .filter((customer): customer is Customer => customer !== null);
 
           if (newCustomers.length > 0) {
             setData(prev => [...newCustomers, ...prev]);
@@ -270,14 +294,19 @@ export function CustomerTable() {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     
-    link.setAttribute('href', url);
-    link.setAttribute('download', `customers_export_${new Date().toISOString().slice(0, 10)}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    toast.success(`Exported ${selectedCustomers.length} customers`);
+    try {
+      link.setAttribute('href', url);
+      link.setAttribute('download', `customers_export_${new Date().toISOString().slice(0, 10)}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast.success(`Exported ${selectedCustomers.length} customers`);
+    } finally {
+      // Cleanup: Revoke the object URL to free memory
+      URL.revokeObjectURL(url);
+    }
   };
 
   const handleModalSubmit = (formData: CustomerFormData) => {
@@ -419,25 +448,27 @@ export function CustomerTable() {
       id: 'name',
       name: `Name`,
       width: '250px',
-      formatter: (cell: string, row: any) => {
+      formatter: (cell: string | any, row: any) => {
+        // Handle both string names and objects with avatar data
+        let name = typeof cell === 'string' ? cell : cell.name || '';
+        let avatar = typeof cell === 'string' ? '' : cell.avatar || '';
+        
         return _(
           <div className="flex items-center gap-3">
-            <img 
-              src={row.cells[2].data} 
-              alt="avatar" 
-              className="w-8 h-8 rounded-full object-cover bg-gray-100 dark:bg-gray-800"
-            />
-            <span className="font-medium text-gray-900 dark:text-gray-100">{cell}</span>
+            {avatar && (
+              <img 
+                src={avatar}
+                alt="avatar" 
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                className="w-8 h-8 rounded-full object-cover bg-gray-100 dark:bg-gray-800"
+              />
+            )}
+            <span className="font-medium text-gray-900 dark:text-gray-100">{name}</span>
           </div>
         );
       },
       sort: true,
       hidden: hiddenColumns.has('name')
-    },
-    {
-      id: 'avatar',
-      name: 'Avatar',
-      hidden: true // Always hidden, used for data access
     },
     {
       id: 'email',
@@ -506,13 +537,12 @@ export function CustomerTable() {
   const gridData = useMemo(() => {
     return filteredData.map(c => [
       c.id, // cell 0 (checkbox)
-      c.name, // cell 1
-      c.avatar, // cell 2
-      c.email, // cell 3
-      c.phone, // cell 4
-      c.tags, // cell 5
-      c.lastContacted, // cell 6
-      c.id // cell 7 (actions)
+      { name: c.name, avatar: c.avatar }, // cell 1 (name with avatar data)
+      c.email, // cell 2
+      c.phone, // cell 3
+      c.tags, // cell 4
+      c.lastContacted, // cell 5
+      c.id // cell 6 (actions)
     ]);
   }, [filteredData]);
 

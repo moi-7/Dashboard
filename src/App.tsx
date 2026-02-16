@@ -3,7 +3,38 @@ import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { Banner } from './components/Banner';
 import { CustomerTable } from './components/CustomerTable';
-import { Toaster } from 'sonner@2.0.3';
+import { Toaster } from 'sonner';
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('Error caught by boundary:', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '20px', color: 'red', fontFamily: 'monospace' }}>
+          <h1>Error de la aplicación</h1>
+          <p>{this.state.error?.message}</p>
+          <pre>{this.state.error?.stack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const [isDark, setIsDark] = useState(false);
@@ -36,28 +67,23 @@ export default function App() {
   };
 
   return (
-    <div className={`flex min-h-screen font-sans transition-colors duration-300 ${isDark ? 'dark bg-gray-950' : 'bg-white'}`}>
-      <Toaster position="top-right" theme={isDark ? 'dark' : 'light'} />
-      <Sidebar />
-      
-      <div className="flex-1 flex flex-col min-w-0 bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
-        <TopBar isDark={isDark} toggleTheme={toggleTheme} />
+    <ErrorBoundary>
+      <div className={`flex min-h-screen font-sans transition-colors duration-300 ${isDark ? 'dark bg-gray-950' : 'bg-white'}`}>
+        <Toaster position="top-right" theme={isDark ? 'dark' : 'light'} />
+        <Sidebar />
         
-        <main className="flex-1 p-8 overflow-y-auto">
-          <div className="max-w-7xl mx-auto">
-            <Banner />
-            <CustomerTable />
-          </div>
+        <div className="flex-1 flex flex-col min-w-0 bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+          <TopBar isDark={isDark} toggleTheme={toggleTheme} />
           
-          <div className="mt-12 mb-4 flex items-center gap-2 text-gray-400 dark:text-gray-600 text-sm pl-2">
-            <span>Made with</span>
-            <span className="font-bold text-indigo-900 dark:text-indigo-400 flex items-center gap-1">
-              <div className="w-5 h-5 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-[10px] font-bold">V</div>
-              Visily
-            </span>
-          </div>
-        </main>
+          <main className="flex-1 p-8 overflow-y-auto">
+            <div className="max-w-7xl mx-auto">
+              <Banner />
+              <CustomerTable />
+            </div>
+            
+          </main>
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }
